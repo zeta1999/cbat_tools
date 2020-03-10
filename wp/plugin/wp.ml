@@ -37,7 +37,8 @@ type flags =
     print_path : bool;
     use_fun_input_regs : bool;
     mem_offset : bool;
-    check_null_deref : bool
+    check_null_deref : bool;
+    rewrite_pointers : bool
   }
 
 let missing_func_msg (func : string) : string =
@@ -84,18 +85,26 @@ let varset_to_string (vs : Var.Set.t) : string =
   |> Seq.to_list
   |> List.to_string ~f:Var.to_string
 
+let get_symbols (file : string) : Symbol.t list =
+  (* Chopping off the bpj to get the original binaries rather than the saved
+     project files. *)
+  file
+  |> String.chop_suffix_exn ~suffix:".bpj"
+  |> Symbol.get_symbols
+
+let rewrite_ptrs (flags : flags) (sub : Sub.t) : Sub.t =
+  if flags.rewrite_pointers then
+    let orig = get_symbols flags.file1 in
+    let modif = get_symbols flags.file2 in
+    Symbol.rewrite_pointers ~orig ~modif sub
+  else
+    sub
+
 (* If an offset is specified, generates a function of the address of a memory read in
    the original binary to the address plus an offset in the modified binary. *)
 let get_mem_offsets (ctx : Z3.context) (flags : flags)
   : Constr.z3_expr -> Constr.z3_expr =
   if flags.mem_offset then
-    let get_symbols file =
-      (* Chopping off the bpj to get the original binaries rather than the saved
-         project files. *)
-      file
-      |> String.chop_suffix_exn ~suffix:".bpj"
-      |> Symbol.get_symbols
-    in
     let syms_orig = get_symbols flags.file1 in
     let syms_mod = get_symbols flags.file2 in
     Symbol.offset_constraint ~orig:syms_orig ~modif:syms_mod ctx
@@ -162,7 +171,8 @@ let compare_projs (ctx : Z3.context) (var_gen : Env.var_gen) (proj : project)
   let subs1 = Term.enum sub_t prog1 in
   let subs2 = Term.enum sub_t prog2 in
   let main_sub1 = find_func_err subs1 flags.func in
-  let main_sub2 = find_func_err subs2 flags.func in
+  let main_sub2 = find_func_err subs2 flags.func
+                  |> rewrite_ptrs flags in
   let env2 =
     let to_inline2 = match_inline flags.inline subs2 in
     let exp_conds2 = exp_conds_mod flags in
@@ -304,6 +314,11 @@ module Cmdline = struct
       ~doc:"If set, the WP analysis will check for inputs that would result in \
             dereferencing a NULL value. Defaults to false."
 
+  let rewrite_pointers = param bool "rewrite-pointers" ~as_flag:true ~default:false
+      ~doc:"If set, wp will attempt to rewrite pointers in the modified binary to \
+            have the same address as the original binary. If this flag is used, the \
+            mem_offset flag should be set to false. Defaults to false."
+
   let () = when_ready (fun {get=(!!)} ->
       let flags =
         {
@@ -321,7 +336,8 @@ module Cmdline = struct
           print_path = !!print_path;
           use_fun_input_regs = !!use_fun_input_regs;
           mem_offset = !!mem_offset;
-          check_null_deref = !!check_null_deref
+          check_null_deref = !!check_null_deref;
+          rewrite_pointers = !!rewrite_pointers
         }
       in
       Project.register_pass' @@

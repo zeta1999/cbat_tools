@@ -102,6 +102,7 @@ let suite = [
   "Arrays in data section"         >:: test_plugin "memory_samples/arrays" sat ~script:"run_wp_mem_offset.sh";
   "Arrays in data section"         >:: test_plugin "memory_samples/arrays" sat ~script:"run_wp_pre.sh";
   "Arrays in data section"         >:: test_plugin "memory_samples/arrays" unsat ~script:"run_wp_pre_mem_offset.sh";
+  "Arrays in data section"         >:: test_plugin "memory_samples/arrays" unsat ~script:"run_wp_rewrite_ptr.sh";
 
   "Data/BSS sections"              >:: test_plugin "memory_samples/data_bss_sections" sat;
   "Data/BSS sections"              >:: test_plugin "memory_samples/data_bss_sections" unsat
@@ -112,6 +113,8 @@ let suite = [
   "Same data, diff location"       >:: test_plugin "memory_samples/diff_data_location" sat;
   "Same data, diff location"       >:: test_plugin "memory_samples/diff_data_location" unsat
     ~script:"run_wp_mem_offset.sh";
+  "Same data, diff location"       >:: test_plugin "memory_samples/diff_data_location" unsat
+    ~script:"run_wp_rewrite_ptr.sh";
 
   "Diff stack values"              >:: test_plugin "memory_samples/diff_stack" sat;
 
