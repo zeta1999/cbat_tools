@@ -27,6 +27,8 @@ module EnvMap = Bap.Std.Var.Map
 
 module Constr = Constraint
 
+module ExprSet : Core_kernel.Set.S with type Elt.t = Constr.z3_expr
+
 (** The state type which is maintained when creating preconditions. It contains, among
     other things, summaries for subroutines, the associations between BIR variables
     and Z3 constants, and preconditions for already visited blocks, if relevant. *)
@@ -128,6 +130,15 @@ val get_fresh : ?name:string -> var_gen -> string
     create fresh variables. *)
 val set_freshen : t -> bool -> t
 
+(** Add a z3 expression representing a constant generated during the analysis to
+    the environment. *)
+val add_const : t -> Constr.z3_expr -> t
+
+(** Removes all z3 expressions representing constants from the environment. This is used
+    because the initial pass through a binary generates constants that are not
+    used during precondition computation. *)
+val clear_consts : t -> t
+
 (** A reference to {!Precondition.visit_sub} that is needed in the
     loop handler of the environment simulating "open recursion". *)
 val wp_rec_call :
@@ -202,6 +213,10 @@ val get_loop_handler :
 
 (** Obtains the architecture of the program. *)
 val get_arch : t -> Bap.Std.Arch.t
+
+(** Obtains a list of all the {!Constr.z3_expr}s that represents constants that
+    were generated during analysis. *)
+val get_consts : t -> ExprSet.t
 
 (** Performs a fold on the map of of function names to tids to generate a
     {!Constr.z3_expr}. *)

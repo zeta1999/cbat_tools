@@ -40,7 +40,7 @@ let format_mem_model (fmt : Format.formatter) (mem_model : mem_model) : unit =
 (** [extract_array] takes a z3 expression that is a seqeunce of store and converts it into
     a mem_model, which consists of a key/value association list and a default value *)
 
-let extract_array (e : Constr.z3_expr) : mem_model  = 
+let extract_array (e : Constr.z3_expr) : mem_model =
   let rec extract_array' (partial_map : (Constr.z3_expr * Constr.z3_expr) list) (e : Constr.z3_expr) : mem_model =
     let numargs = Z3.Expr.get_num_args e in
     let args = Z3.Expr.get_args e in
@@ -69,18 +69,25 @@ let format_model (model : Model.model) (env1 : Env.t) (env2 : Env.t) : string =
   let module Target = (val target_of_arch arch) in
   let var_map = Env.get_var_map env1 in
   let mem_map, reg_map = Env.EnvMap.partitioni_tf var_map ~f:(fun ~key ~data:_ -> Target.CPU.is_mem key) in
+
+  (* Print registers *)
   let key_val = Env.EnvMap.fold reg_map ~init:[]
       ~f:(fun ~key ~data pairs ->
-          let key_str = Var.to_string key in
-          let value = Constr.eval_model_exn model data in
-          (key_str, value) :: pairs)
+          if Var.is_physical key then
+            let key_str = Var.to_string key in
+            let value = Constr.eval_model_exn model data in
+            (key_str, value) :: pairs
+          else
+            pairs)
   in
   let fmt = Format.str_formatter in
   Constr.format_values fmt key_val;
-  Env.EnvMap.iteri mem_map ~f:(fun ~key ~data:mem_orig -> 
+
+  (* Print memory *)
+  Env.EnvMap.iteri mem_map ~f:(fun ~key ~data:mem_orig ->
       let key_str = Var.to_string key in
       let mem_mod, _ = Env.get_var env2 key in
-      let val_orig = Constr.eval_model_exn model mem_orig in 
+      let val_orig = Constr.eval_model_exn model mem_orig in
       let val_mod = Constr.eval_model_exn model mem_mod in
       Format.fprintf fmt "\t%s_orig |-> [\n" key_str;
       format_mem_model fmt (extract_array val_orig);
@@ -90,9 +97,22 @@ let format_model (model : Model.model) (env1 : Env.t) (env2 : Env.t) : string =
         begin
           Format.fprintf fmt "\t%s_mod |-> [\n" key_str;
           format_mem_model fmt (extract_array val_mod)
-        end 
+        end
       else (Format.fprintf fmt "\t%s_mod = %s_orig" key_str key_str);
     );
+
+  (* Print out constants that were generated during analysis. *)
+  let consts = Env.ExprSet.union (Env.get_consts env1) (Env.get_consts env2) in
+  let const_vals =
+    Env.ExprSet.fold consts ~init:[] ~f:(fun pairs c ->
+        let name = Expr.to_string c in
+        let value = Constr.eval_model_exn model c in
+        (name, value) :: pairs)
+  in
+  Format.fprintf fmt "\n%!";
+  Constr.format_values fmt const_vals;
+
+  (* Print function declarations found in the model *)
   let fun_defs =
     model
     |> Model.get_func_decls

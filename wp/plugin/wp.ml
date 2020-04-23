@@ -136,17 +136,20 @@ let analyze_proj (ctx : Z3.context) (var_gen : Env.var_gen) (proj : project)
   (* call visit sub with a dummy postcondition to fill the
      environment with variables *)
   let true_constr = Pre.Bool.mk_true ctx |> Constr.mk_goal "true" |> Constr.mk_constr in
-  let _, env' = Pre.visit_sub env true_constr main_sub in
-  let hyps, env' = Pre.init_vars (Pre.get_vars env' main_sub) env' in
-  let hyps = (Pre.set_sp_range env') :: hyps in
+  let _, env = Pre.visit_sub env true_constr main_sub in
+  (* Remove the constants generated and stored in the environment because they aren't
+     going to be used in the wp analysis. *)
+  let env = Env.clear_consts env in
+  let hyps, env = Pre.init_vars (Pre.get_vars env main_sub) env in
+  let hyps = (Pre.set_sp_range env) :: hyps in
   let post =
     if String.is_empty flags.post_cond then
       true_constr
     else
-      Z3_utils.mk_smtlib2_single env' flags.post_cond
+      Z3_utils.mk_smtlib2_single env flags.post_cond
   in
   let pre, env = Pre.visit_sub env post main_sub in
-  let pre = Constr.mk_clause [Z3_utils.mk_smtlib2_single env' flags.pre_cond] [pre] in
+  let pre = Constr.mk_clause [Z3_utils.mk_smtlib2_single env flags.pre_cond] [pre] in
   let pre = Constr.mk_clause hyps [pre] in
   Format.printf "\nSub:\n%s\nPre:\n%a\n%!"
     (Sub.to_string main_sub) Constr.pp_constr pre;

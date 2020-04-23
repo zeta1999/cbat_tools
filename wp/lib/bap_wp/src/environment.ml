@@ -27,6 +27,16 @@ module EnvMap = Var.Map
 module TidMap = Tid.Map
 module StringMap = String.Map
 
+exception Not_implemented of string
+
+module ExprSet = Set.Make(
+  struct
+    type t = Constr.z3_expr
+    let compare = Expr.compare
+    let sexp_of_t _ = raise (Not_implemented "sexp_of_t for z3_expr not implemented")
+    let t_of_sexp _ = raise (Not_implemented "t_of_sexp for z3_expr not implemented")
+  end)
+
 type var_gen = int ref
 
 type t = {
@@ -48,6 +58,7 @@ type t = {
   stack : Constr.z3_expr -> Constr.z3_expr; (* takes in a memory address as a z3_var *)
   heap : Constr.z3_expr -> Constr.z3_expr;
   init_vars : Constr.z3_expr EnvMap.t;
+  consts : ExprSet.t
 }
 
 and fun_spec_type =
@@ -271,7 +282,8 @@ let mk_env
     use_fun_input_regs = fun_input_regs;
     stack = init_mem_range ctx arch stack_range;
     heap = init_mem_range ctx arch heap_range;
-    init_vars = EnvMap.empty
+    init_vars = EnvMap.empty;
+    consts = ExprSet.empty
   }
 
 let env_to_string (env : t) : string =
@@ -291,6 +303,12 @@ let set_freshen (env : t) (freshen : bool) = { env with freshen = freshen }
 
 let add_var (env : t) (v : Var.t) (x : Constr.z3_expr) : t =
   { env with var_map = EnvMap.set env.var_map ~key:v ~data:x }
+
+let add_const (env : t) (c : Constr.z3_expr) : t =
+  { env with consts = ExprSet.add env.consts c }
+
+let clear_consts (env : t) : t =
+  { env with consts = ExprSet.empty }
 
 let remove_var (env : t) (v : Var.t) : t =
   { env with var_map = EnvMap.remove env.var_map v }
@@ -356,6 +374,9 @@ let get_int_handler (env : t) : int_spec =
 let get_loop_handler (env : t) :
   t -> Constr.t -> start:Graphs.Ir.Node.t -> Graphs.Ir.t -> t =
   env.loop_handler.handle
+
+let get_consts (env : t) : ExprSet.t =
+  env.consts
 
 let get_arch (env : t) : Arch.t =
   env.arch
