@@ -11,10 +11,13 @@
 (*                                                                         *)
 (***************************************************************************)
 
-open !Core_kernel
+open Core_kernel
 open Bap.Std
 open Bap_wp
 include Self()
+
+module Cmd = Bap_main.Extension.Command
+module Typ = Bap_main.Extension.Type
 
 module Comp = Compare
 module Pre = Precondition
@@ -285,131 +288,227 @@ let main (flags : flags) (proj : project) : unit =
   Output.print_result solver result pre ~print_path:flags.print_path
     ~orig:env1 ~modif:env2
 
+module Analysis = struct
 
-module Cmdline = struct
-  open Config
+  type t =
+    | Single
+    | Comparative
 
-  let compare = param bool "compare" ~as_flag:true ~default:false
-      ~doc:"Determines whether to analyze a single function or compare the same \
-            function across two binaries. If enabled, project files must be specified \
-            with the `file1' and `file2' options."
+  let single () =
+    printf "Single!\n%!"
 
-  let file1 = param string "file1" ~default:""
-      ~doc:"Project file location of the first binary for comparative analysis, \
-            which can be generated via the save-project plugin. If both `file1' and \
-            `file2' are specified, wp will automatically run the comparative analysis."
+  let comparative () =
+    printf "Compare!\n%!"
 
-  let file2 = param string "file2" ~default:""
-      ~doc:"Project file location of the second binary for comparative analysis, \
-            which can be generated via the save-project plugin. If both `file1' and \
-            `file2' are specified, wp will automatically run the comparative analysis."
+  let run () =
+    printf "Running analysis\n%!"
 
-  let func = param string "function" ~synonyms:["func"] ~default:"main"
-      ~doc:"Function to run the wp analysis on. `main' by default. If the function \
-            cannot be found in the binary or both binaries in the comparison \
-            case, wp analysis should fail."
+end
 
-  let check_calls = param bool "check-calls" ~as_flag:true ~default:false
-      ~doc:"If set, compares which subroutines are invoked in the body of the \
-            function. Otherwise, compares the return values computed in the function \
-            body. This flag is only used in comparative analysis."
+module Cli = struct
 
-  let inline = param (some string) "inline" ~default:None
-      ~doc:"Function calls to inline as specified by a POSIX regular expression. \
-            If not inlined, function summaries are used at function call time. \
-            If you want to inline everything, set to .*  \
-            foo|bar will inline the functions foo and bar."
+  let name = "wp"
 
-  let pre_cond = param string "precond" ~default:""
-      ~doc:"Pre condition in SMT-LIB format used when analyzing a single binary. \
-            If no pre condition is specified, a trivial pre condition (`true') \
-            will be used."
+  let doc = "CBAT is a comparative analysis tool. It can compare two binaries \
+             and check that they behave in the same way. It can also be used \
+             to check a single binary for certain behaviors."
 
-  let post_cond = param string "postcond" ~default:""
-      ~doc:"Post condition in SMT-LIB format used when analyzing a single binary. \
-            If no post condition is specified, a trivial post condition (`true') \
-            will be used."
+  (* Mandatory arguments. *)
+  let files = Cmd.arguments Typ.file
+      ~doc:"Path(s) to one or two binaries to analyze. If two binaries are \
+            specified, WP will run a comparative analysis."
 
-  let num_unroll = param (some int) "num-unroll" ~default:None
-      ~doc:"Amount of times to unroll each loop. By default, wp will unroll each \
-            loop 5 times."
+  let func = Cmd.parameter (Typ.some Typ.string) "func"
+      ~doc:"Function to run the wp analysis on. If no function is specified or \
+            the function cannot be found in the binary, the analysis should \
+            fail."
 
-  let output_vars = param (list string) "output-vars" ~default:["RAX"; "EAX"]
-      ~doc:"List of output variables to compare separated by `,' given the same \
-            input variables in the case of a comparative analysis. Defaults to `RAX,EAX' \
-            which are the 64- and 32-bit output registers for x86."
+  (* Arguments that determine which properties CBAT should analyze. *)
+  let precond = Cmd.parameter Typ.string "precond"
+      ~doc:"Precondition in SMT-LIB format that will be used as a hypothesis \
+            to the precondition calculated during the WP analysis. If no \
+            precondition is specified, a trivial precondition of `true' will \
+            be used."
 
-  let gdb_filename = param (some string) "gdb-filename" ~default:None
-      ~doc:"Output gdb script file for counterexample. This script file sets a \
-            breakpoint at the the start of the function being analyzed and sets \
-            the registers and memory to the values specified in the countermodel."
+  let postcond = Cmd.parameter Typ.string "postcond"
+      ~doc:"Postcondition in SMT-LIB format. This is the postcondition that \
+            will be used to calculate the weakest precondition. If no \
+            postcondition is specified, a trivial postcondition of `true' will \
+            be used."
 
-  let bildb_output = param (some string) "bildb-output" ~default:None
+  let find_null_deref = Cmd.flag "find-null-deref"
+      ~doc:"If set, CBAT will check for inputs that would result in a null \
+            dereferencing. In the case of a comparative analysis, CBAT checks \
+            for inputs that would cause a null dereference in the modified \
+            binary, assuming that the same dereference in the original \
+            binary is not a null dereference."
+
+  let compare_func_calls = Cmd.flag "compare-function-calls"
+      ~doc:"This flag only works on two binaries, so /path/to/exe1 and \
+            /path/to/exe2 must be provided. If present, this flag checks the \
+            function calls that occur in both binaries. If a function is not \
+            called in the original binary, CBAT checks if the same functon \
+            is also not invoked in the modified binary."
+
+  let compare_final_reg_values =
+    Cmd.parameter (Typ.list Typ.string) "compare-final-reg-values"
+      ~doc:"This flag only works on two binaries, so /path/to/exe1 and \
+            /path/to/exe2 must be provided. If this option is set, CBAT \
+            will compare the final values stored in the specified registers at \
+            the end of the function's execution."
+
+  (* Options. *)
+  let loop_unroll = Cmd.parameter (Typ.some Typ.int) "loop-unroll"
+      ~doc:"Amount of times to unroll each loop. By default, CBAT will unroll \
+            each loop 5 times."
+
+  let print_paths = Cmd.flag "print-paths"
+      ~doc:"If set, prints out the execution path that results in a refuted \
+            goal and the register values at each branch in the path. The path \
+            contains information about whether a branch has been taken and the \
+            address of the branch if found."
+
+  let inline = Cmd.parameter (Typ.some Typ.string) "inline"
+      ~doc:"Functions to inline at a function call site  as specified by a \
+            POSIX regular expression on the name of the target function. \
+            If not inlined, summaries are used at function call time. The \
+            to inline all function calls is `.*'. For example, `foo|bar' will \
+            inline the functions `foo' and `bar'."
+
+  let gdb_filename = Cmd.parameter (Typ.some Typ.string) "gdb-filename"
+      ~doc:"In the case CBAT determines input registers that result in a \
+            refuted goal, this flag outputs gdb script to the filename \
+            specified. This script sets a breakpoint at the the start of the \
+            function being analyzed, and sets the registers and memory to the \
+            values specified in the countermodel."
+
+  let bildb_output = Cmd.parameter (Typ.some Typ.string) "bildb-output"
       ~doc:"In the case CBAT determins input registers that result in a refuted \
             goal, this flag outputs a BilDB YAML file to the filename specified. \
             This file sets the registers and memory to the values specified in the \
             countermodel found during WP analysis, allowing BilDB to follow the \
             same execution trace."
 
-  let print_path = param bool "print-path" ~as_flag:true ~default:false
-      ~doc:"If set, prints out the path to a refuted goal and the register values \
-            at each jump in the path. The path contains information about whether \
-            a jump has been taken and the address of the jump if found."
+  let use_constant_chaosing = Cmd.flag "use-constant-chaosing"
+      ~doc:"If set, CBAT will make all chaosed functions return a constant \
+            (chaosed) value. This flag has no effect on nondeterministic \
+            functions."
 
-  let use_fun_input_regs = param bool "use-fun-input-regs" ~as_flag:true  ~default:true
-      ~doc:"If set, at a function call site, uses all possible input registers \
-            as arguments to a function symbol generated for an output register \
-            that represents the result of the function call. If set to false, no \
-            registers will be used. Defaults to true."
+  let mem_offset = Cmd.flag "mem-offset"
+      ~doc:"If set, maps the symbols in the data and bss sections from their \
+            addresses in the original binary to their addresses in the \
+            modified binary. This flag is still experimental."
 
-  let mem_offset = param bool "mem-offset" ~as_flag:true ~default:false
-      ~doc:"If set, at every memory read, adds an assumption to the precondition that \
-            memory of the modified binary is the same as the original binary at an \
-            offset calculated by aligning the data and bss sections of the binary. \
-            Defaults to false."
+  let print_constr = Cmd.parameter (Typ.list Typ.string) "print-constr"
+      ~as_flag:["internal"; "smtlib"]
+      ~doc:"If set, the preconditions and Z3's SMT-LIB 2 are both printed. One \
+            or both outputs can be explicitly called with the respective names \
+            internal and smtlib, which will print only what is stated. Both \
+            can also be called like --wp-print-constr=internal,smtlib. If the \
+            flag is not called, it defaults to printing neither."
 
-  let check_null_deref = param bool "check-null-deref" ~as_flag:true ~default:false
-      ~doc:"If set, the WP analysis will check for inputs that would result in \
-            dereferencing a NULL value. In the case of a comparative analysis, \
-            asserts that if a memory read or write in the original binary does \
-            not dereference a NULL, then that same read or write in the modified \
-            binary also does not dereference a NULL. Defaults to false."
+  let grammar = Cmd.(
+      args
+      $ func
+      $ precond
+      $ postcond
+      $ find_null_deref
+      $ compare_func_calls
+      $ compare_final_reg_values
+      $ loop_unroll
+      $ print_paths
+      $ inline
+      $ gdb_filename
+      $ bildb_output
+      $ use_constant_chaosing
+      $ mem_offset
+      $ print_constr
+      $ files)
 
-  let print_constr = param (list string) "print-constr" ~as_flag:["internal";"smtlib"] ~default:[]
-      ~doc:"If set, the preconditions and Z3's SMT-LIB 2 are both printed. \
-            One or both outputs can be explicitly called with the respective names \
-            internal and smtlib, which will print only what is stated. Both can \
-            also be called like --wp-print-constr=internal,smtlib. If the flag \
-            is not called, it defaults to printing neither."
+  let missing_func_msg = "Function is not provided for analysis."
 
-  let () = when_ready (fun {get=(!!)} ->
-      let flags =
-        {
-          compare = !!compare;
-          file1 = !!file1;
-          file2 = !!file2;
-          func = !!func;
-          check_calls = !!check_calls;
-          inline = !!inline;
-          pre_cond = !!pre_cond;
-          post_cond = !!post_cond;
-          num_unroll = !!num_unroll;
-          output_vars = !!output_vars;
-          gdb_filename = !!gdb_filename;
-          bildb_output = !!bildb_output;
-          print_path = !!print_path;
-          use_fun_input_regs = !!use_fun_input_regs;
-          mem_offset = !!mem_offset;
-          check_null_deref = !!check_null_deref;
-          print_constr = !!print_constr
-        }
-      in
-      Project.register_pass' @@
-      main flags
-    )
+  let invalid_file_count_msg count =
+    Format.sprintf "CBAT can only analyze one binary for a single analysis or \
+                    two binaries for a comparative analysis. Number of \
+                    binaries provided: %d." count
 
-  let () = manpage [
-      `S "DESCRIPTION";
-      `P "Computes the weakest precondition of a subroutine given a postcondition."
-    ]
+  (* Ensures the user inputted a function for analysis. *)
+  let check_func (func : string option) : string =
+    match func with
+    | Some f -> f
+    | None -> Format.printf "%s\n%!" missing_func_msg; exit 1
+
+  (* Determines whether CBAT should perform a single or comparative analysis. *)
+  let analysis_type (files : string list) : Analysis.t =
+    match List.length files with
+    | 1 -> Single
+    | 2 -> Comparative
+    | n -> Format.printf "%s\n%!" (invalid_file_count_msg n); exit 1
+
+  let callback
+      func
+      precond
+      postcond
+      find_null_deref
+      compare_func_calls
+      compare_final_reg_values
+      loop_unroll
+      print_paths
+      inline
+      gdb_filename
+      bildb_output
+      use_constant_chaosing
+      mem_offset
+      print_constr
+      files
+      _
+    =
+    (* Check the user has provided the proper arguments. *)
+    let func = check_func func in
+    let analysis = analysis_type files in
+    begin
+      match analysis with
+      | Single -> Analysis.single_analysis ()
+      | Comparative -> Analysis.comparative_analysis ()
+    end;
+    Ok ()
+
+end
+
+let () =
+  Cmd.declare Cli.name Cli.grammar Cli.callback ~doc:Cli.doc
+
+(*********)
+
+
+let () = when_ready (fun {get=(!!)} ->
+    let flags =
+      {
+        compare = !!compare;
+        file1 = !!file1;
+        file2 = !!file2;
+        func = !!func;
+        check_calls = !!check_calls;
+        inline = !!inline;
+        pre_cond = !!pre_cond;
+        post_cond = !!post_cond;
+        num_unroll = !!num_unroll;
+        output_vars = !!output_vars;
+        gdb_filename = !!gdb_filename;
+        bildb_output = !!bildb_output;
+        print_path = !!print_path;
+        use_fun_input_regs = !!use_fun_input_regs;
+        mem_offset = !!mem_offset;
+        check_null_deref = !!check_null_deref;
+        print_constr = !!print_constr
+      }
+    in
+    Project.register_pass' @@
+    main flags
+  )
+
+let () = manpage [
+    `S "DESCRIPTION";
+    `P "Computes the weakest precondition of a subroutine given a postcondition."
+  ]
 end
