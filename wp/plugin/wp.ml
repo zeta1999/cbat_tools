@@ -31,26 +31,18 @@ module Utils = struct
     Format.sprintf "Missing function: %s is not in binary." func
 
   let diff_arch_msg (arch1 : Arch.t) (arch2 : Arch.t) : string =
-    Format.sprintf "Binaries are of two different architectures: %s vs %s"
-      (Arch.to_string arch1) (Arch.to_string arch2)
-
-  let invalid_file_count_msg files =
-    Format.sprintf "CBAT can only analyze one binary for a single analysis or \
-                    two binaries for a comparative analysis. Number of \
-                    binaries provided: %d." (List.length files)
-
-  let load_proj_error_msg msg =
-    Format.sprintf "Error loading project: %s\n%!" msg
+    Format.sprintf "CBAT only supports comparing binaries of the same architecture: \
+                    %s vs %s" (Arch.to_string arch1) (Arch.to_string arch2)
 
   let loader = "llvm"
 
-  let load_proj loader filepath =
+  let load_proj (loader : string) (filepath : string) : Project.t =
     let input = Project.Input.file ~loader ~filename:filepath in
     match Project.create input with
     | Ok proj -> proj
     | Error e ->
       let msg = Error.to_string_hum e in
-      failwith (load_proj_error_msg msg)
+      failwith (Format.sprintf "Error loading project: %s\n%!" msg)
 
   let find_func_err (subs : Sub.t Seq.t) (func : string) : Sub.t =
     match Seq.find ~f:(fun s -> String.equal (Sub.name s) func) subs with
@@ -60,10 +52,13 @@ module Utils = struct
   (* Not efficient, but easier to read *)
   let find_func_in_one_of (f : string) ~to_find:(to_find : Sub.t Seq.t)
       ~to_check:(to_check : Sub.t Seq.t) : Sub.t list =
-    match Seq.find ~f:(fun s -> String.equal (Sub.name s) f) to_find with
-    | None -> if Option.is_some (Seq.find ~f:(fun s -> String.equal (Sub.name s) f) to_check)
-      then []
-      else failwith (missing_func_msg f)
+    let has_name s = String.equal (Sub.name s) f in
+    match Seq.find ~f:has_name to_find with
+    | None ->
+      if Option.is_some (Seq.find ~f:has_name to_check) then
+        []
+      else
+        failwith (missing_func_msg f)
     | Some f -> [f]
 
   let update_default_num_unroll (num_unroll : int option) : unit =
@@ -71,16 +66,18 @@ module Utils = struct
     | Some n -> Pre.num_unroll := n
     | None -> ()
 
-  let match_inline (to_inline : string option) (subs : (Sub.t Seq.t)) : Sub.t Seq.t =
+  let match_inline (to_inline : string option) (subs : Sub.t Seq.t) : Sub.t Seq.t =
     match to_inline with
     | None -> Seq.empty
-    | Some to_inline -> let inline_pat = Re.Posix.re to_inline |> Re.Posix.compile in
+    | Some to_inline ->
+      let inline_pat = Re.Posix.re to_inline |> Re.Posix.compile in
       let filter_subs = Seq.filter ~f:(fun s -> Re.execp inline_pat (Sub.name s)) subs in
       let () =
         if Seq.length_is_bounded_by ~min:1 filter_subs then
-          info "Inlining functions: %s\n" (filter_subs |> Seq.to_list |> List.to_string ~f:Sub.name)
+          let names = filter_subs |> Seq.to_list |> List.to_string ~f:Sub.name in
+          info "Inlining functions: %s\n%!" names
         else
-          warning "No matches on inlining\n"
+          warning "No matches on inlining\n%!"
       in
       filter_subs
 
@@ -174,20 +171,14 @@ let comparators_of_options
   in
   List.unzip comps
 
-  (* If an offset is specified, generates a function of the address of a memory read in
-     the original binary to the address plus an offset in the modified binary. *)
-  let get_mem_offsets (ctx : Z3.context) (opts : options) (file1 : string) (file2 : string)
-    : Constr.z3_expr -> Constr.z3_expr =
+  (* If an offset is specified, generates a function of the address of a memory
+     read in the original binary to the address plus an offset in the modified
+     binary. *)
+  let get_mem_offsets (ctx : Z3.context) (opts : options) (file1 : string)
+      (file2 : string) : Constr.z3_expr -> Constr.z3_expr =
     if opts.mem_offset then
-      let get_symbols file =
-        (* Chopping off the bpj to get the original binaries rather than the saved
-           project files. *)
-        file
-        |> String.chop_suffix_exn ~suffix:".bpj"
-        |> Symbol.get_symbols
-      in
-      let syms_orig = get_symbols file1 in
-      let syms_mod = get_symbols file2 in
+      let syms_orig = Symbol.get_symbols file1 in
+      let syms_mod = Symbol.get_symbols file2 in
       Symbol.offset_constraint ~orig:syms_orig ~modif:syms_mod ctx
     else
       fun addr -> addr
@@ -195,8 +186,8 @@ let comparators_of_options
   (* Generate the exp_conds for the original binary based on the flags passed in
      from the CLI. Generating the memory offsets requires the environment of
      the modified binary. *)
-  let exp_conds_orig (opts : options) (env_mod : Env.t) (file1 : string) (file2 : string)
-    : Env.exp_cond list =
+  let exp_conds_orig (opts : options) (env_mod : Env.t) (file1 : string)
+      (file2 : string) : Env.exp_cond list =
     let ctx = Env.get_context env_mod in
     let offsets =
       get_mem_offsets ctx opts file1 file2
@@ -215,8 +206,13 @@ let comparators_of_options
     else
       []
 
-  let single (ctx : Z3.context) (var_gen : Env.var_gen) (file : string) (func : string)
-      (opts : options) : Constr.t * Env.t * Env.t =
+  let single
+      (ctx : Z3.context)
+      (var_gen : Env.var_gen)
+      (file : string)
+      (func : string)
+      (opts : options)
+    : Constr.t * Env.t * Env.t =
     let proj = Utils.load_proj Utils.loader file in
     let arch = Project.arch proj in
     let subs = proj |> Project.program |> Term.enum sub_t in
@@ -224,13 +220,13 @@ let comparators_of_options
     let to_inline = Utils.match_inline opts.inline subs in
     let exp_conds = exp_conds_mod opts in
     let env = Pre.mk_env ctx var_gen ~subs ~arch ~to_inline
-        ~use_fun_input_regs:opts.use_constant_chaosing ~exp_conds in
+        ~use_constant_chaosing:opts.use_constant_chaosing ~exp_conds in
     (* call visit sub with a dummy postcondition to fill the
        environment with variables *)
     let true_constr = Env.trivial_constr env in
     let _, env = Pre.visit_sub env true_constr main_sub in
-    (* Remove the constants generated and stored in the environment because they aren't
-       going to be used in the wp analysis. *)
+    (* Remove the constants generated and stored in the environment because they
+       aren't going to be used in the wp analysis. *)
     let env = Env.clear_consts env in
     let hyps, env = Pre.init_vars (Pre.get_vars env main_sub) env in
     let hyps = (Pre.set_sp_range env) :: hyps in
@@ -241,10 +237,10 @@ let comparators_of_options
         Z3_utils.mk_smtlib2_single env opts.postcond
     in
     let pre, env = Pre.visit_sub env post main_sub in
-    let pre = Constr.mk_clause [Z3_utils.mk_smtlib2_single env opts.precond] [pre] in
+    let smt_pre = Z3_utils.mk_smtlib2_single env opts.precond in
+    let pre = Constr.mk_clause [smt_pre] [pre] in
     let pre = Constr.mk_clause hyps [pre] in
-    Format.printf "\nSub:\n%s\nPre:\n%a\n%!"
-      (Sub.to_string main_sub) Constr.pp_constr pre;
+    Format.printf "\nSub:\n%s\n%!" (Sub.to_string main_sub);
     (pre, env, env)
 
   let comparative
@@ -272,8 +268,14 @@ let comparators_of_options
     let env2 =
       let to_inline2 = Utils.match_inline opts.inline subs2 in
       let exp_conds2 = exp_conds_mod opts in
-      let env2 = Pre.mk_env ctx var_gen ~subs:subs2 ~arch:arch2 ~to_inline:to_inline2
-          ~use_fun_input_regs:opts.use_constant_chaosing ~exp_conds:exp_conds2 in
+      let env2 =
+        Pre.mk_env ctx var_gen
+          ~subs:subs2
+          ~arch:arch2
+          ~to_inline:to_inline2
+          ~use_constant_chaosing:opts.use_constant_chaosing
+          ~exp_conds:exp_conds2
+      in
       let env2 = Env.set_freshen env2 true in
       let _, env2 = Pre.init_vars (Pre.get_vars env2 main_sub2) env2 in
       env2
@@ -281,8 +283,14 @@ let comparators_of_options
     let env1 =
       let to_inline1 = Utils.match_inline opts.inline subs1 in
       let exp_conds1 = exp_conds_orig opts env2 file1 file2 in
-      let env1 = Pre.mk_env ctx var_gen ~subs:subs1 ~arch:arch1 ~to_inline:to_inline1
-          ~use_fun_input_regs:opts.use_constant_chaosing ~exp_conds:exp_conds1 in
+      let env1 =
+        Pre.mk_env ctx var_gen
+          ~subs:subs1
+          ~arch:arch1
+          ~to_inline:to_inline1
+          ~use_constant_chaosing:opts.use_constant_chaosing
+          ~exp_conds:exp_conds1
+      in
       let _, env1 = Pre.init_vars (Pre.get_vars env1 main_sub1) env1 in
       env1
     in
@@ -297,26 +305,30 @@ let comparators_of_options
       (Sub.to_string main_sub1) (Sub.to_string main_sub2);
     (pre, env1, env2)
 
-  let run files func options =
+  let run (files : string list) (func : string) (opts : options) : unit =
     let ctx = Env.mk_ctx () in
     let var_gen = Env.mk_var_gen () in
     let solver = Z3.Solver.mk_simple_solver ctx in
-    Utils.update_default_num_unroll options.loop_unroll;
+    let () = Utils.update_default_num_unroll opts.loop_unroll in
     let pre, env1, env2 =
       (* Determine whether to perform a single or comparative analysis. *)
       match files with
-      | [file] -> single ctx var_gen file func options
-      | [file1; file2] -> comparative ctx var_gen file1 file2 func options
-      | fs -> Format.printf "%s\n%!" (Utils.invalid_file_count_msg fs); exit 1
+      | [file] -> single ctx var_gen file func opts
+      | [file1; file2] -> comparative ctx var_gen file1 file2 func opts
+      | _ ->
+        Format.printf "CBAT can only analyze one binary for a single analysis \
+                       or two binaries for a comparative analysis. Number of \
+                       binaries provided: %d." (List.length files);
+        exit 1
     in
-    let result = Pre.check ~print_constr:options.print_constr solver ctx pre in
-    let () = match options.gdb_filename with
+    let result = Pre.check ~print_constr:opts.print_constr solver ctx pre in
+    let () = match opts.gdb_filename with
       | None -> ()
       | Some f -> Output.output_gdb solver result env2 ~func:func ~filename:f in
-    let () = match options.bildb_output with
+    let () = match opts.bildb_output with
       | None -> ()
       | Some f -> Output.output_bildb solver result env2 f in
-    Output.print_result solver result pre ~print_path:options.print_paths
+    Output.print_result solver result pre ~print_path:opts.print_paths
       ~orig:env1 ~modif:env2
 
 end
@@ -441,13 +453,11 @@ module Cli = struct
       $ print_constr
       $ files)
 
-  let missing_func_msg = "Function is not provided for analysis."
-
   (* Ensures the user inputted a function for analysis. *)
   let check_func (func : string option) : string =
     match func with
     | Some f -> f
-    | None -> Format.printf "%s\n%!" missing_func_msg; exit 1
+    | None -> Format.printf "Function is not provided for analysis.\n%!"; exit 1
 
   let callback
       (func : string option)
@@ -468,21 +478,20 @@ module Cli = struct
       (_ : ctxt)
     =
     let func = check_func func in
-    let options = Analysis.(
-        {
-          precond = precond;
-          postcond = postcond;
-          find_null_derefs = find_null_derefs;
-          compare_func_calls = compare_func_calls;
-          compare_final_reg_values = compare_final_reg_values;
-          loop_unroll = loop_unroll;
-          print_paths = print_paths;
-          inline = inline;
-          gdb_filename = gdb_filename;
-          use_constant_chaosing = use_constant_chaosing;
-          mem_offset = mem_offset;
-          print_constr = print_constr
-        })
+    let options = Analysis.({
+        precond = precond;
+        postcond = postcond;
+        find_null_derefs = find_null_derefs;
+        compare_func_calls = compare_func_calls;
+        compare_final_reg_values = compare_final_reg_values;
+        loop_unroll = loop_unroll;
+        print_paths = print_paths;
+        inline = inline;
+        gdb_filename = gdb_filename;
+        use_constant_chaosing = use_constant_chaosing;
+        mem_offset = mem_offset;
+        print_constr = print_constr
+      })
     in
     Analysis.run files func options;
     Ok ()

@@ -90,7 +90,7 @@ type exp_cond = t -> Bap.Std.Exp.t -> cond_type option
     - the number of times to unroll a loop
     - the architecture of the binary
     - the option to freshen variable names
-    - the option to use all input registers when generating function symbols at a call site
+    - the option to use constant chaosing when generating function symbols at a call site
     - the concrete range of addresses of the stack
     - the concrete range of addresses of the heap
     - a Z3 context
@@ -105,7 +105,7 @@ val mk_env
   -> num_loop_unroll:int
   -> arch:Bap.Std.Arch.t
   -> freshen_vars:bool
-  -> use_fun_input_regs:bool
+  -> use_constant_chaosing:bool
   -> stack_range:int * int
   -> heap_range:int * int
   -> Z3.context
@@ -226,9 +226,9 @@ val fold_fun_tids :
 (** Checks if the architecture is part of the x86 family. *)
 val is_x86 : Bap.Std.Arch.t -> bool
 
-(** Checks to see if the environment supports using all possible input registers
+(** Checks to see if the environment supports using constant chaosing
     when generating symbols in the function specs at a function call site. *)
-val use_input_regs : t -> bool
+val use_constant_chaosing : t -> bool
 
 (** [in_stack env addr] is the constraint [STACK_MIN <= addr <= STACK_MAX] as
     defined by the concrete range of the stack in the env. *)

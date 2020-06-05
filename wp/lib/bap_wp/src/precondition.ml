@@ -389,10 +389,10 @@ let callee_saved_regs (arch : Arch.t) : Var.t list =
 
 let rec get_vars (env : Env.t) (t : Sub.t) : Var.Set.t =
   let vars =
-    if Env.use_input_regs env then
-      env |> Env.get_arch |> input_regs |> Var.Set.of_list
-    else
+    if Env.use_constant_chaosing env then
       Var.Set.empty
+    else
+      env |> Env.get_arch |> input_regs |> Var.Set.of_list
   in
   let visitor =
     (object inherit [Var.Set.t] Term.visitor
@@ -531,7 +531,7 @@ let spec_arg_terms (sub : Sub.t) (_ : Arch.t) : Env.fun_spec option =
                      | Some Both -> var :: ins, var :: outs
                      | None -> ins, outs)
              in
-             let inputs = if Env.use_input_regs env then inputs else [] in
+             let inputs = if Env.use_constant_chaosing env then [] else inputs in
              subst_fun_outputs env sub post ~inputs:inputs ~outputs:outputs, env)
     }
   else
@@ -556,7 +556,7 @@ let spec_rax_out (sub : Sub.t) (arch : Arch.t) : Env.fun_spec option =
           (fun env post tid ->
              let post = set_fun_called post env tid in
              let post, env = increment_stack_ptr post env in
-             let inputs = if Env.use_input_regs env then input_regs arch else [] in
+             let inputs = if Env.use_constant_chaosing env then [] else input_regs arch in
              let rax = Seq.find_exn (defs sub) ~f:is_rax |> Def.lhs in
              subst_fun_outputs env sub post ~inputs ~outputs:[rax], env)
     }
@@ -572,7 +572,7 @@ let spec_chaos_rax (sub : Sub.t) (arch : Arch.t) : Env.fun_spec option =
           (fun env post tid ->
              let post = set_fun_called post env tid in
              let post, env = increment_stack_ptr post env in
-             let inputs = if Env.use_input_regs env then input_regs arch else [] in
+             let inputs = if Env.use_constant_chaosing env then [] else input_regs arch in
              subst_fun_outputs env sub post ~inputs ~outputs:[X86_cpu.AMD64.rax], env)
     }
   | _ -> None
@@ -585,7 +585,7 @@ let spec_chaos_caller_saved (sub : Sub.t) (arch : Arch.t) : Env.fun_spec option 
           (fun env post tid ->
              let post = set_fun_called post env tid in
              let post, env = increment_stack_ptr post env in
-             let inputs = if Env.use_input_regs env then input_regs arch else [] in
+             let inputs = if Env.use_constant_chaosing env then [] else input_regs arch in
              let regs = caller_saved_regs arch in
              subst_fun_outputs env sub post ~inputs ~outputs:regs, env)
     }
@@ -603,7 +603,7 @@ let spec_afl_maybe_log (sub : Sub.t) (arch : Arch.t) : Env.fun_spec option =
               (fun env post tid ->
                  let post = set_fun_called post env tid in
                  let post, env = increment_stack_ptr post env in
-                 let inputs = if Env.use_input_regs env then input_regs arch else [] in
+                 let inputs = if Env.use_constant_chaosing env then [] else input_regs arch in
                  let outputs =
                    let open X86_cpu.AMD64 in
                    [rax; rcx; rdx]
@@ -672,14 +672,14 @@ let mk_env
     ?num_loop_unroll:(num_loop_unroll = !num_unroll)
     ?arch:(arch = `x86_64)
     ?freshen_vars:(freshen_vars = false)
-    ?use_fun_input_regs:(use_fun_input_regs = true)
+    ?use_constant_chaosing:(use_constant_chaosing = false)
     ?stack_range:(stack_range = default_stack_range)
     ?heap_range:(heap_range = default_heap_range)
     (ctx : Z3.context)
     (var_gen : Env.var_gen)
   : Env.t =
   Env.mk_env ~subs ~specs ~default_spec ~jmp_spec ~int_spec ~exp_conds ~num_loop_unroll
-    ~arch ~freshen_vars ~use_fun_input_regs ~stack_range ~heap_range ctx var_gen
+    ~arch ~freshen_vars ~use_constant_chaosing ~stack_range ~heap_range ctx var_gen
 
 let visit_jmp (env : Env.t) (post : Constr.t) (jmp : Jmp.t) : Constr.t * Env.t =
   let jmp_spec = Env.get_jmp_handler env in

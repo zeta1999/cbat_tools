@@ -54,7 +54,7 @@ type t = {
   loop_handler : loop_handler;
   exp_conds : exp_cond list;
   arch : Arch.t;
-  use_fun_input_regs : bool;
+  use_constant_chaosing : bool;
   stack : Constr.z3_expr -> Constr.z3_expr; (* takes in a memory address as a z3_var *)
   heap : Constr.z3_expr -> Constr.z3_expr;
   init_vars : Constr.z3_expr EnvMap.t;
@@ -243,7 +243,7 @@ let init_mem_range (ctx : Z3.context) (arch : Arch.t) ((min, max) : int * int)
    - the number of times to unroll a loop
    - the architecture of the binary
    - the option to freshen variable names
-   - the option to use all input registers when generating function symbols at a call site
+   - the option to use constant chaosing when generating function symbols at a call site
    - the range of addresses of the stack
    - the range of addresses of the heap
    - a Z3 context
@@ -258,7 +258,7 @@ let mk_env
     ~num_loop_unroll:(num_loop_unroll : int)
     ~arch:(arch : Arch.t)
     ~freshen_vars:(freshen_vars : bool)
-    ~use_fun_input_regs:(fun_input_regs : bool)
+    ~use_constant_chaosing:(use_constant_chaosing : bool)
     ~stack_range:(stack_range : int * int)
     ~heap_range:(heap_range : int * int)
     (ctx : Z3.context)
@@ -279,7 +279,7 @@ let mk_env
     loop_handler = init_loop_unfold num_loop_unroll;
     exp_conds = exp_conds;
     arch = arch;
-    use_fun_input_regs = fun_input_regs;
+    use_constant_chaosing = use_constant_chaosing;
     stack = init_mem_range ctx arch stack_range;
     heap = init_mem_range ctx arch heap_range;
     init_vars = EnvMap.empty;
@@ -390,8 +390,8 @@ let is_x86 (a : Arch.t) : bool =
   | #Arch.x86 -> true
   | _ -> false
 
-let use_input_regs (env : t) : bool =
-  env.use_fun_input_regs
+let use_constant_chaosing (env : t) : bool =
+  env.use_constant_chaosing
 
 let in_stack (env : t) : Constr.z3_expr -> Constr.z3_expr =
   env.stack

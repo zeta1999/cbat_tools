@@ -217,8 +217,8 @@ val num_unroll : int ref
     - an architecture of x86_64 for architecture specific constraints and specs
     - freshening variables set to false. Should be set to true in order to represent the
       variables in the modified binary
-    - the option to use all function input registers when generating function symbols
-      at a call site set to true
+    - the option to use constant chaosing when generating function symbols
+      at a call site set to false
     - the default concrete range of addresses of the stack for constraints about
       the stack: [0x00007fffffff0000, 0x00007fffffffffff]
     - the default concreate range of addresses of the heap for constraints about
@@ -237,7 +237,7 @@ val mk_env
   -> ?num_loop_unroll:int
   -> ?arch:Bap.Std.Arch.t
   -> ?freshen_vars:bool
-  -> ?use_fun_input_regs:bool
+  -> ?use_constant_chaosing:bool
   -> ?stack_range:int * int
   -> ?heap_range:int * int
   -> Z3.context
