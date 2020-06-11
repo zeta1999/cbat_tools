@@ -10,7 +10,7 @@ compile () {
 }
 
 run () {
-  bap verifier_assume_unsat --pass=wp
+  bap wp --func=main -- verifier_assume_unsat
 }
 
 compile && run

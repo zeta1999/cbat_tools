@@ -13,7 +13,7 @@ compile () {
 }
 
 run () {
-    bap main --pass=wp --wp-inline=NONEXISTENTGARBAGE
+    bap wp --func=main --inline=NONEXISTENTGARBAGE -- main
 }
 
 compile && run

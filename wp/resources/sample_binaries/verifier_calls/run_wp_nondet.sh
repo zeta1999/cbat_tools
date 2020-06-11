@@ -11,7 +11,7 @@ compile () {
 }
 
 run () {
-  bap verifier_nondet --pass=wp
+  bap wp --func=main -- verifier_nondet
 }
 
 compile && run

@@ -14,7 +14,7 @@ compile () {
 }
 
 run () {
-  bap main --pass=wp --wp-check-null-deref
+  bap wp --func=main --find-null-derefs -- main
 }
 
 compile && run

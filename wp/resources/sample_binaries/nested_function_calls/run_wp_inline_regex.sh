@@ -12,7 +12,7 @@ compile () {
 }
 
 run () {
-  bap main --pass=wp --wp-inline="foo|bar"
+  bap wp --func=main --inline="foo|bar" -- main
 }
 
 compile && run

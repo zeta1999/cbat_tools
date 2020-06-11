@@ -12,7 +12,7 @@ compile () {
 }
 
 run () {
-  bap main --pass=wp
+  bap wp --func=main -- main
 }
 
 compile && run
