@@ -36,10 +36,15 @@ module Utils = struct
 
   let loader = "llvm"
 
+  let api_pass (proj : Project.t) : Project.t =
+    match Project.find_pass "api" with
+    | Some pass -> Project.Pass.run_exn pass proj
+    | None -> failwith "API pass not found! Check is bap-api is installed.%!"
+
   let load_proj (loader : string) (filepath : string) : Project.t =
     let input = Project.Input.file ~loader ~filename:filepath in
     match Project.create input with
-    | Ok proj -> proj
+    | Ok proj -> api_pass proj
     | Error e ->
       let msg = Error.to_string_hum e in
       failwith (Format.sprintf "Error loading project: %s\n%!" msg)
@@ -108,68 +113,68 @@ module Analysis = struct
       print_constr : string list
     }
 
-let func_calls (flag : bool) : (Comp.comparator * Comp.comparator) option =
-  if flag then
-    Some Comp.compare_subs_fun
-  else
-    None
-
-let final_reg_values
-    (regs : string list)
-    ~orig:(sub1, env1 : Sub.t * Env.t)
-    ~modif:(sub2, env2 : Sub.t * Env.t)
-  : (Comp.comparator * Comp.comparator) option =
-  if List.is_empty regs then
-    None
-  else begin
-    let input = Var.Set.union
-        (Pre.get_vars env1 sub1) (Pre.get_vars env2 sub2) in
-    let output = Var.Set.union
-        (Pre.get_output_vars env1 sub1 regs)
-        (Pre.get_output_vars env2 sub2 regs) in
-    debug "Input: %s%!" (Utils.varset_to_string input);
-    debug "Output: %s%!" (Utils.varset_to_string output);
-    Some (Comp.compare_subs_eq ~input ~output)
-  end
-
-let smtlib ~postcond:(postcond : string) ~precond:(precond : string)
-  : (Comp.comparator * Comp.comparator) option =
-  if String.is_empty postcond && String.is_empty precond then
-    None
-  else
-    Some (Comp.compare_subs_smtlib ~smtlib_post:postcond ~smtlib_hyp:precond)
-
-let sp (arch : Arch.t) : (Comp.comparator * Comp.comparator) option =
-  match arch with
-  | `x86_64 -> Some Comp.compare_subs_sp
-  | _ ->
-    error "CBAT can only generate hypotheses about the stack pointer and \
-           memory for the x86_64 architecture.\n%!";
-    None
-
-(* Returns a list of postconditions and a list of hypotheses based on the flags
-   set from the command line. *)
-let comparators_of_options
-    ~orig:(sub1, env1 : Sub.t * Env.t)
-    ~modif:(sub2, env2 : Sub.t * Env.t)
-    (opts : options)
-  : Comp.comparator list * Comp.comparator list =
-  let arch = Env.get_arch env1 in
-  let comps =
-    [ func_calls opts.compare_func_calls;
-      final_reg_values opts.compare_final_reg_values
-        ~orig:(sub1, env1) ~modif:(sub2, env2);
-      smtlib ~postcond:opts.postcond ~precond:opts.precond;
-      sp arch ]
-    |> List.filter_opt
-  in
-  let comps =
-    if List.is_empty comps then
-      [Comp.compare_subs_empty_post]
+  let func_calls (flag : bool) : (Comp.comparator * Comp.comparator) option =
+    if flag then
+      Some Comp.compare_subs_fun
     else
-      comps
-  in
-  List.unzip comps
+      None
+
+  let final_reg_values
+      (regs : string list)
+      ~orig:(sub1, env1 : Sub.t * Env.t)
+      ~modif:(sub2, env2 : Sub.t * Env.t)
+    : (Comp.comparator * Comp.comparator) option =
+    if List.is_empty regs then
+      None
+    else begin
+      let input = Var.Set.union
+          (Pre.get_vars env1 sub1) (Pre.get_vars env2 sub2) in
+      let output = Var.Set.union
+          (Pre.get_output_vars env1 sub1 regs)
+          (Pre.get_output_vars env2 sub2 regs) in
+      debug "Input: %s%!" (Utils.varset_to_string input);
+      debug "Output: %s%!" (Utils.varset_to_string output);
+      Some (Comp.compare_subs_eq ~input ~output)
+    end
+
+  let smtlib ~postcond:(postcond : string) ~precond:(precond : string)
+    : (Comp.comparator * Comp.comparator) option =
+    if String.is_empty postcond && String.is_empty precond then
+      None
+    else
+      Some (Comp.compare_subs_smtlib ~smtlib_post:postcond ~smtlib_hyp:precond)
+
+  let sp (arch : Arch.t) : (Comp.comparator * Comp.comparator) option =
+    match arch with
+    | `x86_64 -> Some Comp.compare_subs_sp
+    | _ ->
+      error "CBAT can only generate hypotheses about the stack pointer and \
+             memory for the x86_64 architecture.\n%!";
+      None
+
+  (* Returns a list of postconditions and a list of hypotheses based on the flags
+     set from the command line. *)
+  let comparators_of_options
+      ~orig:(sub1, env1 : Sub.t * Env.t)
+      ~modif:(sub2, env2 : Sub.t * Env.t)
+      (opts : options)
+    : Comp.comparator list * Comp.comparator list =
+    let arch = Env.get_arch env1 in
+    let comps =
+      [ func_calls opts.compare_func_calls;
+        final_reg_values opts.compare_final_reg_values
+          ~orig:(sub1, env1) ~modif:(sub2, env2);
+        smtlib ~postcond:opts.postcond ~precond:opts.precond;
+        sp arch ]
+      |> List.filter_opt
+    in
+    let comps =
+      if List.is_empty comps then
+        [Comp.compare_subs_empty_post]
+      else
+        comps
+    in
+    List.unzip comps
 
   (* If an offset is specified, generates a function of the address of a memory
      read in the original binary to the address plus an offset in the modified

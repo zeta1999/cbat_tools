@@ -427,6 +427,11 @@ let rec get_vars (env : Env.t) (t : Sub.t) : Var.Set.t =
   in
   visitor#visit_sub t vars
 
+let api_not_found_msg : string =
+  "CBAT API not found. Please ensure that c/cbat.h is located in \
+   $(bap --api-list-paths) or specify its location with \
+   --api-path=path/to/c/cbat.h"
+
 let spec_verifier_error (sub : Sub.t) (_ : Arch.t) : Env.fun_spec option =
   let is_verifier_error name = String.(
       name = "__VERIFIER_error" ||
@@ -466,7 +471,7 @@ let spec_verifier_assume (sub : Sub.t) (_ : Arch.t) : Env.fun_spec option =
              let input =
                match Seq.find args ~f:is_input with
                | Some i -> i
-               | None -> failwith "Verifier headerfile must be specified with --api-path" in
+               | None -> failwith api_not_found_msg in
              let v = var_of_arg_t input in
              let z3_v, env = Env.get_var env v in
              let size = BV.get_size (Expr.get_sort z3_v) in
@@ -502,7 +507,7 @@ let spec_verifier_nondet (sub : Sub.t) (_ : Arch.t) : Env.fun_spec option =
              let output =
                match Seq.find args ~f:is_output with
                | Some o -> o
-               | None -> failwith "Verifier headerfile must be specified with --api-path" in
+               | None -> failwith api_not_found_msg in
              let vars = output |> Bap.Std.Arg.rhs |> Exp.free_vars in
              let v = Var.Set.choose_exn vars in
              let z3_v, env = Env.get_var env v in
