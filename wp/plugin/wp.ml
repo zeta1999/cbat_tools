@@ -13,11 +13,14 @@
 
 open Core_kernel
 open Bap_main
+open Bap_knowledge
 open Bap.Std
+open Regular.Std
 open Bap_wp
 include Self()
 
 module Cmd = Bap_main.Extension.Command
+module Conf = Bap_main.Extension.Configuration
 module Typ = Bap_main.Extension.Type
 
 module Comp = Compare
@@ -25,10 +28,73 @@ module Pre = Precondition
 module Env = Environment
 module Constr = Constraint
 
-module Utils = struct
+module Digests = struct
 
-  let missing_func_msg (func : string) : string =
-    Format.sprintf "Missing function: %s is not in binary." func
+  (* Returns a function that makes digests. *)
+  let get_generator ctx filepath loader =
+    let inputs = [Conf.digest ctx; Caml.Digest.file filepath; loader] in
+    let subject = String.concat inputs in
+    fun ~namespace ->
+      let d = Data.Cache.Digest.create ~namespace in
+      Data.Cache.Digest.add d "%s" subject
+
+  (* Creates a digest for the knowledge cache. *)
+  let knowledge mk_digest = mk_digest ~namespace:"knowledge"
+
+  (* Creates a digest for the project state cache. *)
+  let project mk_digest = mk_digest ~namespace:"project"
+
+end
+
+module Knowledge_cache = struct
+
+  (* Creates the knowledge cache. *)
+  let knowledge_cache () =
+    let reader = Data.Read.create ~of_bigstring:Knowledge.of_bigstring () in
+    let writer = Data.Write.create ~to_bigstring:Knowledge.to_bigstring () in
+    Data.Cache.Service.request reader writer
+
+  (* Loads knowledge (if any) from the knowledge cache. *)
+  let load digest =
+    let cache = knowledge_cache () in
+    match Data.Cache.load cache digest with
+    | None -> ()
+    | Some state -> Toplevel.set state
+
+  (* Saves knowledge in the knowledge cache. *)
+  let save digest =
+    let cache = knowledge_cache () in
+    Toplevel.current ()
+    |> Data.Cache.save cache digest
+
+end
+
+module Project_cache = struct
+
+  (* Creates a project state cache. *)
+  let project_cache () =
+    let module State = struct
+      type t = Project.state [@@deriving bin_io]
+    end in
+    let of_bigstring = Binable.of_bigstring (module State) in
+    let to_bigstring = Binable.to_bigstring (module State) in
+    let reader = Data.Read.create ~of_bigstring () in
+    let writer = Data.Write.create ~to_bigstring () in
+    Data.Cache.Service.request reader writer
+
+  (* Loads project state (if any) from the cache. *)
+  let load digest : Project.state option =
+    let cache = project_cache () in
+    Data.Cache.load cache digest
+
+  (* Saves project state in the cache. *)
+  let save digest state =
+    let cache = project_cache () in
+    Data.Cache.save cache digest state
+
+end
+
+module Utils = struct
 
   let diff_arch_msg (arch1 : Arch.t) (arch2 : Arch.t) : string =
     Format.sprintf "CBAT only supports comparing binaries of the same architecture: \
@@ -36,55 +102,55 @@ module Utils = struct
 
   let loader = "llvm"
 
+  (* Runs the api pass on the project to determine argument terms for
+     each subroutine. *)
   let api_pass (proj : Project.t) : Project.t =
     match Project.find_pass "api" with
     | Some pass -> Project.Pass.run_exn pass proj
-    | None -> failwith "API pass not found! Check is bap-api is installed.%!"
+    | None -> failwith "API pass not found! Check if bap-api is installed.%!"
 
-  let load_proj (loader : string) (filepath : string) : Project.t =
+  (* Loads a BAP Project from a binary file. *)
+  let load_proj (package : string) (loader : string) (filepath : string)
+    : Project.t =
     let input = Project.Input.file ~loader ~filename:filepath in
-    match Project.create input with
+    match Project.create ~package input with
     | Ok proj -> api_pass proj
     | Error e ->
       let msg = Error.to_string_hum e in
       failwith (Format.sprintf "Error loading project: %s\n%!" msg)
 
+  (* Finds a function by name in the binary. *)
   let find_func_err (subs : Sub.t Seq.t) (func : string) : Sub.t =
     match Seq.find ~f:(fun s -> String.equal (Sub.name s) func) subs with
-    | None -> failwith (missing_func_msg func)
+    | None ->
+      failwith (Format.sprintf "Missing function: %s is not in binary." func)
     | Some f -> f
 
-  (* Not efficient, but easier to read *)
-  let find_func_in_one_of (f : string) ~to_find:(to_find : Sub.t Seq.t)
-      ~to_check:(to_check : Sub.t Seq.t) : Sub.t list =
-    let has_name s = String.equal (Sub.name s) f in
-    match Seq.find ~f:has_name to_find with
-    | None ->
-      if Option.is_some (Seq.find ~f:has_name to_check) then
-        []
-      else
-        failwith (missing_func_msg f)
-    | Some f -> [f]
-
+  (* Updates the number of times to unroll a loop from the default of 5. *)
   let update_default_num_unroll (num_unroll : int option) : unit =
     match num_unroll with
     | Some n -> Pre.num_unroll := n
     | None -> ()
 
-  let match_inline (to_inline : string option) (subs : Sub.t Seq.t) : Sub.t Seq.t =
+  (* Returns a sequence of subroutines to be inlined. *)
+  let match_inline (to_inline : string option) (subs : Sub.t Seq.t)
+    : Sub.t Seq.t =
     match to_inline with
     | None -> Seq.empty
     | Some to_inline ->
       let inline_pat = Re.Posix.re to_inline |> Re.Posix.compile in
-      let filter_subs = Seq.filter ~f:(fun s -> Re.execp inline_pat (Sub.name s)) subs in
+      let to_inline =
+        Seq.filter subs ~f:(fun s ->
+            Re.execp inline_pat (Sub.name s))
+      in
       let () =
-        if Seq.length_is_bounded_by ~min:1 filter_subs then
-          let names = filter_subs |> Seq.to_list |> List.to_string ~f:Sub.name in
+        if Seq.length_is_bounded_by ~min:1 to_inline then
+          let names = to_inline |> Seq.to_list |> List.to_string ~f:Sub.name in
           info "Inlining functions: %s\n%!" names
         else
           warning "No matches on inlining\n%!"
       in
-      filter_subs
+      to_inline
 
   let varset_to_string (vs : Var.Set.t) : string =
     vs
@@ -119,6 +185,8 @@ module Analysis = struct
     else
       None
 
+  (* Parses the list of registers into a constraint that compares each
+     register between the original and modified binaries. *)
   let final_reg_values
       (regs : string list)
       ~orig:(sub1, env1 : Sub.t * Env.t)
@@ -144,6 +212,8 @@ module Analysis = struct
     else
       Some (Comp.compare_subs_smtlib ~smtlib_post:postcond ~smtlib_hyp:precond)
 
+  (* If the binary is in x86_64, we use our stack pointer constraint as a
+     hypothesis *)
   let sp (arch : Arch.t) : (Comp.comparator * Comp.comparator) option =
     match arch with
     | `x86_64 -> Some Comp.compare_subs_sp
@@ -152,8 +222,8 @@ module Analysis = struct
              memory for the x86_64 architecture.\n%!";
       None
 
-  (* Returns a list of postconditions and a list of hypotheses based on the flags
-     set from the command line. *)
+  (* Returns a list of postconditions and a list of hypotheses based on the
+     flags set from the command line. *)
   let comparators_of_options
       ~orig:(sub1, env1 : Sub.t * Env.t)
       ~modif:(sub2, env2 : Sub.t * Env.t)
@@ -211,6 +281,7 @@ module Analysis = struct
     else
       []
 
+  (* Runs a single binary analysis. *)
   let single
       (ctx : Z3.context)
       (var_gen : Env.var_gen)
@@ -218,7 +289,7 @@ module Analysis = struct
       (func : string)
       (opts : options)
     : Constr.t * Env.t * Env.t =
-    let proj = Utils.load_proj Utils.loader file in
+    let proj = Utils.load_proj "cbat" Utils.loader file in
     let arch = Project.arch proj in
     let subs = proj |> Project.program |> Term.enum sub_t in
     let main_sub = Utils.find_func_err subs func in
@@ -248,6 +319,7 @@ module Analysis = struct
     Format.printf "\nSub:\n%s\n%!" (Sub.to_string main_sub);
     (pre, env, env)
 
+  (* Runs a comparative analysis on two binaries. *)
   let comparative
       (ctx : Z3.context)
       (var_gen : Env.var_gen)
@@ -256,8 +328,8 @@ module Analysis = struct
       (func : string)
       (opts : options)
     : Constr.t * Env.t * Env.t =
-    let proj1 = Utils.load_proj Utils.loader file1 in
-    let proj2 = Utils.load_proj Utils.loader file2 in
+    let proj1 = Utils.load_proj "original" Utils.loader file1 in
+    let proj2 = Utils.load_proj "modified" Utils.loader file2 in
     let prog1 = Project.program proj1 in
     let prog2 = Project.program proj2 in
     let arch1 = Project.arch proj1 in
@@ -310,6 +382,7 @@ module Analysis = struct
       (Sub.to_string main_sub1) (Sub.to_string main_sub2);
     (pre, env1, env2)
 
+  (* Entrypoint for the WP analysis. *)
   let run (files : string list) (func : string) (opts : options) : unit =
     let ctx = Env.mk_ctx () in
     let var_gen = Env.mk_var_gen () in
@@ -464,6 +537,7 @@ module Cli = struct
     | Some f -> f
     | None -> Format.printf "Function is not provided for analysis.\n%!"; exit 1
 
+  (* The callback to run when the command is invoked from the command line. *)
   let callback
       (func : string option)
       (precond : string)
