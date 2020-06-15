@@ -18,14 +18,11 @@ compile () {
 }
 
 run () {
-  bap $dummy_dir/hello_world.out --pass=wp \
-    --wp-compare \
-    --wp-file1=main_1.bpj \
-    --wp-file2=main_2.bpj \
-    --wp-function=foo_get \
-    --wp-output-vars=RAX,RBX,RSP,RBP,R12,R13,R14,R15 \
-    --wp-precond="(assert (bvult RDI_orig #x000000000000000a))"
-
+  bap wp \
+    --func=foo_get \
+    --compare-final-reg-values=RAX,RBX,RSP,RBP,R12,R13,R14,R15 \
+    --precond="(assert (bvult RDI_orig #x000000000000000a))" \
+    -- main_1 main_2
 }
 
 compile && run

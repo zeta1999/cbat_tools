@@ -12,11 +12,10 @@ compile () {
 }
 
 run () {
-  bap $dummy_dir/hello_world.out --pass=wp \
-    --wp-compare \
-    --wp-function=process_status \
-    --wp-file1=switch_case_assignments-23908.bpj \
-    --wp-file2=switch_case_assignments-26471.bpj
+  bap wp \
+    --func=process_status \
+    --compare-final-reg-values=RAX \
+    -- switch_case_assignments-23908 switch_case_assignments-26471
 }
 
 compile && run

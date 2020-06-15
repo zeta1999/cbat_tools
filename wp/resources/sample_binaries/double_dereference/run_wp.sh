@@ -12,11 +12,11 @@ compile () {
 }
 
 run () {
-  bap $dummy_dir/hello_world.out --pass=wp \
-    --wp-compare \
-    --wp-file1=main_1.bpj \
-    --wp-file2=main_2.bpj \
-    --wp-mem-offset
+  bap wp \
+    --func=main \
+    --compare-final-reg-values=RAX \
+    --mem-offset \
+    -- main_1 main_2
 }
 
 compile && run

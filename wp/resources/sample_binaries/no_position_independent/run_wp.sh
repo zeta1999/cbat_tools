@@ -13,12 +13,11 @@ compile () {
 }
 
 run () {
-  bap $dummy_dir/hello_world.out --pass=wp \
-    --wp-compare \
-    --wp-file1=main_1.bpj \
-    --wp-file2=main_2.bpj \
-    --wp-function=example \
-    --wp-inline=init
+  bap wp \
+    --func=example \
+    --compare-final-reg-values=RAX \
+    --inline=init \
+    -- main_1.so main_2.so
 }
 
 compile && run

@@ -11,10 +11,10 @@ compile () {
 }
 
 run () {
-  bap $dummy_dir/hello_world.out --pass=wp \
-    --wp-compare \
-    --wp-file1=equiv_argc-6404.bpj \
-    --wp-file2=equiv_argc-6487.bpj
+  bap wp \
+    --func=main \
+    --compare-final-reg-value=RAX \
+    -- equiv_argc-6404 equiv_argc-6487
 }
 
 compile && run

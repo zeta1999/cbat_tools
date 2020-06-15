@@ -15,11 +15,11 @@ compile () {
 }
 
 run () {
-  bap $dummy_dir/hello_world.out --pass=wp \
-    --wp-compare \
-    --wp-file1=main_1.bpj \
-    --wp-file2=main_2.bpj \
-    --wp-precond="(assert (= RDI_mod #x0000000000000002)) (assert (= RDI_orig #x0000000000000002))"
+  bap wp \
+    --func=main \
+    --compare-final-reg-values=RAX \
+    --precond="(assert (= RDI_mod #x0000000000000002)) (assert (= RDI_orig #x0000000000000002))" \
+    -- main_1 main_2
 }
 
 compile && run
