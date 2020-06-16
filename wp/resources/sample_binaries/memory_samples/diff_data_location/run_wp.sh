@@ -10,8 +10,6 @@
 
 set -x
 
-dummy_dir=../../dummy
-
 compile () {
   make
 }

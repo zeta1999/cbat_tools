@@ -201,7 +201,7 @@ let suite = [
 
   "Verifier assume SAT"            >: test_plugin "verifier_calls" sat ~script:"run_wp_assume_sat.sh";
   "Verifier assume UNSAT"          >: test_plugin "verifier_calls" unsat ~script:"run_wp_assume_unsat.sh";
-  "Verifier nondet"               >: test_plugin "verifier_calls" sat ~script:"run_wp_nondet.sh";
+  "Verifier nondet"                >: test_plugin "verifier_calls" sat ~script:"run_wp_nondet.sh";
 
   (* Test updating number of unrolls *)
 

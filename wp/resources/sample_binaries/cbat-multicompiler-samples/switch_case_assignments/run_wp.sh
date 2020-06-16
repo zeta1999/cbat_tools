@@ -5,12 +5,6 @@
 
 set -x
 
-dummy_dir=../../dummy
-
-compile () {
-  make
-}
-
 run () {
   bap wp \
     --func=process_status \
@@ -18,4 +12,4 @@ run () {
     -- switch_case_assignments-23908 switch_case_assignments-26471
 }
 
-compile && run
+run

@@ -6,19 +6,14 @@
 
 set -x
 
-dummy_dir=../../dummy
-
-compile () {
-  make
-}
-
 run () {
   bap wp \
     --func=main \
     --compare-final-reg-values=RAX \
     --use-constant-chaosing \
     --inline=.* \
+    --no-byteweight \
     -- csmith-10684 csmith-16812
 }
 
-compile && run
+run

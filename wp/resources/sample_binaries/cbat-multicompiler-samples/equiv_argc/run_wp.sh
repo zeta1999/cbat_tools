@@ -4,17 +4,12 @@
 
 set -x
 
-dummy_dir=../../dummy
-
-compile () {
-  make
-}
-
 run () {
   bap wp \
     --func=main \
     --compare-final-reg-value=RAX \
+    --no-byteweight \
     -- equiv_argc-6404 equiv_argc-6487
 }
 
-compile && run
+run
