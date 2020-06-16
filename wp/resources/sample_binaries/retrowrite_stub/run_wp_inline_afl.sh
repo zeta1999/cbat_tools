@@ -17,7 +17,7 @@ compile () {
 
 run () {
   bap wp \
-    --func=__libc_start_main \
+    --func=main \
     --compare-final-reg-values=RAX \
     --inline=__afl_maybe_log \
     -- main_1 main_2

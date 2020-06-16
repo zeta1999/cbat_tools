@@ -17,7 +17,7 @@ compile () {
 
 run () {
   bap wp \
-    --func=__libc_start_main \
+    --func=main \
     --compare-final-reg-values=RAX \
     --no-byteweight \
     -- main_1 main_2

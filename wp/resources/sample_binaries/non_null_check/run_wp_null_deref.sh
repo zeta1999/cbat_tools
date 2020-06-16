@@ -19,7 +19,7 @@ compile () {
 
 run () {
   bap wp \
-    --func=__libc_start_main \
+    --func=main \
     --compare-final-reg-values=RAX \
     --find-null-derefs \
     -- main_1 main_2

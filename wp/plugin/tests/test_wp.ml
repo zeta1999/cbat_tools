@@ -78,7 +78,7 @@ let test_update_num_unroll
     (new_unroll : int option)
   : test =
   let original = !Wp.Pre.num_unroll in
-  Wp.update_default_num_unroll new_unroll;
+  Wp.Utils.update_default_num_unroll new_unroll;
   let updated = !Wp.Pre.num_unroll in
   let test ctxt =
     match new_unroll with
@@ -201,7 +201,7 @@ let suite = [
 
   "Verifier assume SAT"            >: test_plugin "verifier_calls" sat ~script:"run_wp_assume_sat.sh";
   "Verifier assume UNSAT"          >: test_plugin "verifier_calls" unsat ~script:"run_wp_assume_unsat.sh";
-  "Verifier nondent"               >: test_plugin "verifier_calls" sat ~script:"run_wp_nondet.sh";
+  "Verifier nondet"               >: test_plugin "verifier_calls" sat ~script:"run_wp_nondet.sh";
 
   (* Test updating number of unrolls *)
 

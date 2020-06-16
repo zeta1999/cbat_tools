@@ -17,7 +17,7 @@ compile () {
 
 run () {
   bap wp \
-    --func=__libc_start_main \
+    --func=main \
     --compare-final-reg-values=RAX \
     --postcond="(assert (= RAX_mod (bvadd init_RDI_orig #x0000000000000002)))" \
     -- main_1 main_2
