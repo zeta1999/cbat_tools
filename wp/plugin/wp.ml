@@ -172,7 +172,7 @@ module Analysis = struct
       loop_unroll : int option;
       print_paths : bool;
       inline : string option;
-      gdb_filename : string option;
+      gdb_output : string option;
       bildb_output : string option;
       use_constant_chaosing : bool;
       mem_offset : bool;
@@ -400,12 +400,14 @@ module Analysis = struct
         exit 1
     in
     let result = Pre.check ~print_constr:opts.print_constr solver ctx pre in
-    let () = match opts.gdb_filename with
+    let () = match opts.gdb_output with
       | None -> ()
-      | Some f -> Output.output_gdb solver result env2 ~func:func ~filename:f in
+      | Some f -> Output.output_gdb solver result env2 ~func:func ~filename:f
+    in
     let () = match opts.bildb_output with
       | None -> ()
-      | Some f -> Output.output_bildb solver result env2 f in
+      | Some f -> Output.output_bildb solver result env2 f
+    in
     Output.print_result solver result pre ~print_path:opts.print_paths
       ~orig:env1 ~modif:env2
 
@@ -481,7 +483,7 @@ module Cli = struct
             to inline all function calls is `.*'. For example, `foo|bar' will \
             inline the functions `foo' and `bar'."
 
-  let gdb_filename = Cmd.parameter (Typ.some Typ.string) "gdb-filename"
+  let gdb_output = Cmd.parameter (Typ.some Typ.string) "gdb-output"
       ~doc:"In the case CBAT determines input registers that result in a \
             refuted goal, this flag outputs gdb script to the filename \
             specified. This script sets a breakpoint at the the start of the \
@@ -524,7 +526,7 @@ module Cli = struct
       $ loop_unroll
       $ print_paths
       $ inline
-      $ gdb_filename
+      $ gdb_output
       $ bildb_output
       $ use_constant_chaosing
       $ mem_offset
@@ -548,7 +550,7 @@ module Cli = struct
       (loop_unroll : int option)
       (print_paths : bool)
       (inline : string option)
-      (gdb_filename : string option)
+      (gdb_output : string option)
       (bildb_output : string option)
       (use_constant_chaosing : bool)
       (mem_offset : bool)
@@ -566,7 +568,8 @@ module Cli = struct
         loop_unroll = loop_unroll;
         print_paths = print_paths;
         inline = inline;
-        gdb_filename = gdb_filename;
+        gdb_output = gdb_output;
+        bildb_output = bildb_output;
         use_constant_chaosing = use_constant_chaosing;
         mem_offset = mem_offset;
         print_constr = print_constr
